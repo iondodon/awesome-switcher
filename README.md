@@ -51,6 +51,7 @@ Optionally edit any subset of the following settings, the defaults are:
     switcher.settings.client_opacity_value_selected = 1,                  -- alpha-value for the selected client
 
     switcher.settings.cycle_raise_client = true,                          -- raise clients on cycle
+    switcher.settings.cycle_all_clients  = false,                          -- cycle through all clients
 ```
 
 Then add key-bindings. On my particular system I switch to the next client by Alt-Tab and
