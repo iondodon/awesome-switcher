@@ -42,6 +42,7 @@ _M.settings = {
 	client_opacity_value = 0.5,
 
 	cycle_raise_client = true,
+	cycle_all_clients  = false,
 }
 
 -- Create a wibox to contain all the client-widgets
@@ -104,7 +105,7 @@ function _M.getClients()
 			end
 		end
 
-		if isCurrentTag then
+		if isCurrentTag or _M.settings.cycle_all_clients then
 			-- check if client is already in the history
 			-- if not, add it
 			local addToTable = true
@@ -498,6 +499,7 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 						-- raise chosen client on top of all
 						c = _M.altTabTable[_M.altTabIndex].client
 						c:raise()
+						c:jump_to()
 						client.focus = c
 
 						-- restore minimized clients
