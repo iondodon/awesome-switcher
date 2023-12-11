@@ -22,7 +22,7 @@ Clone the repo into your `$XDG_CONFIG_HOME/awesome` directory:
 
 ```Shell
 cd "$XDG_CONFIG_HOME/awesome"
-git clone https://github.com/berlam/awesome-switcher.git awesome-switcher
+git clone https://github.com/troglobit/awesome-switcher.git awesome-switcher
 ```
 
 Then add the dependency to your Awesome `rc.lua` config file:
