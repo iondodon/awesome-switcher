@@ -175,30 +175,8 @@ end
 
 -- Preview is created here.
 function _M.clientOpacity()
-	if not _M.settings.client_opacity then return end
-
-	local opacity = _M.settings.client_opacity_value
-	if opacity > 1 then opacity = 1 end
-	for i, data in pairs(_M.altTabTable) do
-		data.client.opacity = opacity
-	end
-
-	if client.focus == _M.altTabTable[_M.altTabIndex].client then
-		-- Let's normalize the value up to 1.
-		local opacityFocusSelected = _M.settings.client_opacity_value_selected +
-			_M.settings.client_opacity_value_in_focus
-		if opacityFocusSelected > 1 then opacityFocusSelected = 1 end
-		client.focus.opacity = opacityFocusSelected
-	else
-		-- Let's normalize the value up to 1.
-		local opacityFocus = _M.settings.client_opacity_value_in_focus
-		if opacityFocus > 1 then opacityFocus = 1 end
-		local opacitySelected = _M.settings.client_opacity_value_selected
-		if opacitySelected > 1 then opacitySelected = 1 end
-
-		client.focus.opacity = opacityFocus
-		_M.altTabTable[_M.altTabIndex].client.opacity = opacitySelected
-	end
+	-- Function disabled to prevent darkening effects
+	return
 end
 
 -- This is called any _M.settings.preview_box_fps milliseconds. In case the list
@@ -411,9 +389,7 @@ function _M.preview()
 				-- Overlays
 				cr:scale(1 / sx, 1 / sy)
 				cr:translate(-tx, -ty)
-				cr:set_source_rgba(0, 0, 0, overlay)
-				cr:rectangle(tx, ty, sx * cg.width, sy * cg.height)
-				cr:fill()
+				-- Removed darkening overlay
 			end
 		end
 
