@@ -393,9 +393,34 @@ function _M.preview()
 			end
 		end
 
-		-- Add mouse handler
+		-- Add mouse handlers
 		_M.preview_widgets[i]:connect_signal("mouse::enter", function()
 			_M.cycle(leftRightTabToAltTabIndex[i] - _M.altTabIndex)
+		end)
+		
+		-- Add click handler to switch to the window
+		_M.preview_widgets[i]:connect_signal("button::press", function(_, _, _, button)
+			if button == 1 then -- Left mouse button
+				_M.cycle(leftRightTabToAltTabIndex[i] - _M.altTabIndex)
+				
+				-- Hide the preview box
+				_M.preview_wbox.visible = false
+				_M.preview_live_timer:stop()
+				
+				-- Focus and raise the selected client
+				local c = _M.altTabTable[_M.altTabIndex].client
+				c:raise()
+				c:jump_to()
+				client.focus = c
+				
+				-- Restore opacity for all clients
+				for j = 1, #_M.altTabTable do
+					_M.altTabTable[j].client.opacity = _M.altTabTable[j].opacity
+				end
+				
+				-- Stop the keygrabber
+				keygrabber.stop()
+			end
 		end)
 	end
 
