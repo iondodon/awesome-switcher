@@ -240,21 +240,9 @@ function _M.preview()
 	-- create a list that holds the clients to preview, from left to right
 	local leftRightTab = {}
 	local leftRightTabToAltTabIndex = {} -- save mapping from leftRightTab to altTabTable as well
-	local nLeft
-	local nRight
-	if #_M.altTabTable == 2 then
-		nLeft = 0
-		nRight = 2
-	else
-		nLeft = math.floor(#_M.altTabTable / 2)
-		nRight = math.ceil(#_M.altTabTable / 2)
-	end
 
-	for i = 1, nLeft do
-		table.insert(leftRightTab, _M.altTabTable[#_M.altTabTable - nLeft + i].client)
-		table.insert(leftRightTabToAltTabIndex, #_M.altTabTable - nLeft + i)
-	end
-	for i = 1, nRight do
+	-- Simply add all clients from left to right in the alt-tab order
+	for i = 1, #_M.altTabTable do
 		table.insert(leftRightTab, _M.altTabTable[i].client)
 		table.insert(leftRightTabToAltTabIndex, i)
 	end
@@ -397,27 +385,27 @@ function _M.preview()
 		_M.preview_widgets[i]:connect_signal("mouse::enter", function()
 			_M.cycle(leftRightTabToAltTabIndex[i] - _M.altTabIndex)
 		end)
-		
+
 		-- Add click handler to switch to the window
 		_M.preview_widgets[i]:connect_signal("button::press", function(_, _, _, button)
 			if button == 1 then -- Left mouse button
 				_M.cycle(leftRightTabToAltTabIndex[i] - _M.altTabIndex)
-				
+
 				-- Hide the preview box
 				_M.preview_wbox.visible = false
 				_M.preview_live_timer:stop()
-				
+
 				-- Focus and raise the selected client
 				local c = _M.altTabTable[_M.altTabIndex].client
 				c:raise()
 				c:jump_to()
 				client.focus = c
-				
+
 				-- Restore opacity for all clients
 				for j = 1, #_M.altTabTable do
 					_M.altTabTable[j].client.opacity = _M.altTabTable[j].opacity
 				end
-				
+
 				-- Stop the keygrabber
 				keygrabber.stop()
 			end
@@ -499,25 +487,15 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 						end
 					else
 						-- Raise clients in order to restore history
-						local c
-						for i = 1, _M.altTabIndex - 1 do
-							c = _M.altTabTable[_M.altTabIndex - i].client
-							if not _M.altTabTable[i].minimized then
-								c:raise()
-								client.focus = c
-							end
-						end
-
-						-- raise chosen client on top of all
-						c = _M.altTabTable[_M.altTabIndex].client
+						local c = _M.altTabTable[_M.altTabIndex].client
 						c:raise()
 						c:jump_to()
 						client.focus = c
 
-						-- restore minimized clients
+						-- restore minimized clients and opacity
 						for i = 1, #_M.altTabTable do
-							if i ~= _M.altTabIndex and _M.altTabTable[i].minimized then
-								_M.altTabTable[i].client.minimized = true
+							if i ~= _M.altTabIndex then
+								_M.altTabTable[i].client.minimized = _M.altTabTable[i].minimized
 							end
 							_M.altTabTable[i].client.opacity = _M.altTabTable[i].opacity
 						end
@@ -542,4 +520,3 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 end -- function altTab
 
 return { switch = _M.switch, settings = _M.settings }
-
