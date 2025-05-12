@@ -19,7 +19,7 @@ local debug = debug
 local pairs = pairs
 local unpack = unpack or table.unpack
 
-local surface = cairo.ImageSurface(cairo.Format.RGB24,20,20)
+local surface = cairo.ImageSurface(cairo.Format.RGB24, 20, 20)
 local cr = cairo.Context(surface)
 
 local _M = {}
@@ -27,22 +27,24 @@ local _M = {}
 -- settings
 
 _M.settings = {
-	preview_box = true,
-	preview_box_bg = "#ddddddaa",
-	preview_box_border = "#22222200",
-	preview_box_fps = 30,
-	preview_box_delay = 150,
-	preview_box_title_font = {"sans","italic","normal"},
+	preview_box                        = true,
+	preview_box_bg                     = "#ddddddaa",
+	preview_box_border                 = "#22222200",
+	preview_box_fps                    = 30,
+	preview_box_delay                  = 150,
+	preview_box_title_font             = { "sans", "italic", "normal" },
 	preview_box_title_font_size_factor = 0.8,
-	preview_box_title_color = {0,0,0,1},
+	preview_box_title_color            = { 0, 0, 0, 1 },
+	preview_box_selected_bg            = "#5294e2aa",
+	preview_box_selected_border        = "#5294e2ff",
 
-	client_opacity = false,
-	client_opacity_value_selected = 1,
-	client_opacity_value_in_focus = 0.5,
-	client_opacity_value = 0.5,
+	client_opacity                     = false,
+	client_opacity_value_selected      = 1,
+	client_opacity_value_in_focus      = 0.5,
+	client_opacity_value               = 0.5,
 
-	cycle_raise_client = true,
-	cycle_all_clients  = false,
+	cycle_raise_client                 = true,
+	cycle_all_clients                  = false,
 }
 
 -- Create a wibox to contain all the client-widgets
@@ -51,13 +53,13 @@ _M.preview_wbox.border_width = 3
 _M.preview_wbox.ontop = true
 _M.preview_wbox.visible = false
 
-_M.preview_live_timer = timer({ timeout = 1/_M.settings.preview_box_fps })
+_M.preview_live_timer = timer({ timeout = 1 / _M.settings.preview_box_fps })
 _M.preview_widgets = {}
 
 _M.altTabTable = {}
 _M.altTabIndex = 1
 
-_M.source = string.sub(debug.getinfo(1,'S').source, 2)
+_M.source = string.sub(debug.getinfo(1, 'S').source, 2)
 _M.path = string.sub(_M.source, 1, string.find(_M.source, "/[^/]*$"))
 _M.noicon = _M.path .. "noicon.png"
 
@@ -148,10 +150,10 @@ function _M.populateAltTabTable()
 
 	for i = 1, #clients do
 		table.insert(_M.altTabTable, {
-		client = clients[i],
-		minimized = clients[i].minimized,
-		opacity = clients[i].opacity
-       })
+			client = clients[i],
+			minimized = clients[i].minimized,
+			opacity = clients[i].opacity
+		})
 	end
 end
 
@@ -177,13 +179,14 @@ function _M.clientOpacity()
 
 	local opacity = _M.settings.client_opacity_value
 	if opacity > 1 then opacity = 1 end
-	for i,data in pairs(_M.altTabTable) do
+	for i, data in pairs(_M.altTabTable) do
 		data.client.opacity = opacity
 	end
 
 	if client.focus == _M.altTabTable[_M.altTabIndex].client then
 		-- Let's normalize the value up to 1.
-		local opacityFocusSelected = _M.settings.client_opacity_value_selected + _M.settings.client_opacity_value_in_focus
+		local opacityFocusSelected = _M.settings.client_opacity_value_selected +
+			_M.settings.client_opacity_value_in_focus
 		if opacityFocusSelected > 1 then opacityFocusSelected = 1 end
 		client.focus.opacity = opacityFocusSelected
 	else
@@ -216,7 +219,7 @@ function _M.cycle(dir)
 	-- Switch to next client
 	_M.altTabIndex = _M.altTabIndex + dir
 	if _M.altTabIndex > #_M.altTabTable then
-		_M.altTabIndex = 1 -- wrap around
+		_M.altTabIndex = 1         -- wrap around
 	elseif _M.altTabIndex < 1 then
 		_M.altTabIndex = #_M.altTabTable -- wrap around
 	end
@@ -248,13 +251,13 @@ function _M.preview()
 	-- Make the wibox the right size, based on the number of clients
 	local n = math.max(7, #_M.altTabTable)
 	local W = screen[mouse.screen].geometry.width -- + 2 * _M.preview_wbox.border_width
-	local w = W / n -- widget width
-	local h = w * 0.75  -- widget height
+	local w = W / n                            -- widget width
+	local h = w * 0.75                         -- widget height
 	local textboxHeight = w * 0.125
 
 	local x = screen[mouse.screen].geometry.x - _M.preview_wbox.border_width
 	local y = screen[mouse.screen].geometry.y + (screen[mouse.screen].geometry.height - h - textboxHeight) / 2
-	_M.preview_wbox:geometry({x = x, y = y, width = W, height = h + textboxHeight})
+	_M.preview_wbox:geometry({ x = x, y = y, width = W, height = h + textboxHeight })
 
 	-- create a list that holds the clients to preview, from left to right
 	local leftRightTab = {}
@@ -319,14 +322,21 @@ function _M.preview()
 		local c = leftRightTab[i]
 		_M.preview_widgets[i].draw = function(preview_widget, preview_wbox, cr, width, height)
 			if width ~= 0 and height ~= 0 then
+				local isSelected = c == _M.altTabTable[_M.altTabIndex].client
+				local overlay = isSelected and 0 or 0.6
+				local fontSize = isSelected and bigFont or smallFont
 
-				local a = 0.8
-				local overlay = 0.6
-				local fontSize = smallFont
-				if c == _M.altTabTable[_M.altTabIndex].client then
-					a = 0.9
-					overlay = 0
-					fontSize = bigFont
+				-- Draw background for the client box
+				if isSelected then
+					cr:set_source_rgba(gears.color.parse_color(_M.settings.preview_box_selected_bg))
+					cr:rectangle(0, 0, width, height)
+					cr:fill()
+
+					-- Draw border for selected client
+					cr:set_source_rgba(gears.color.parse_color(_M.settings.preview_box_selected_border))
+					cr:set_line_width(2)
+					cr:rectangle(1, 1, width - 2, height - 2)
+					cr:stroke()
 				end
 
 				local sx, sy, tx, ty
@@ -358,13 +368,13 @@ function _M.preview()
 				tx = (w - titleboxWidth) / 2
 				ty = h
 				sx = iconboxWidth / icon.width
-				sy = iconboxHeight  / icon.height
+				sy = iconboxHeight / icon.height
 
 				cr:translate(tx, ty)
 				cr:scale(sx, sy)
 				cr:set_source_surface(icon, 0, 0)
 				cr:paint()
-				cr:scale(1/sx, 1/sy)
+				cr:scale(1 / sx, 1 / sy)
 				cr:translate(-tx, -ty)
 
 				-- Draw titles
@@ -378,12 +388,14 @@ function _M.preview()
 
 				-- Draw previews
 				local cg = c:geometry()
+				local previewScale = 0.8 -- Fixed scale for all previews
+
 				if cg.width > cg.height then
-					sx = a * w / cg.width
-					sy = math.min(sx, a * h / cg.height)
+					sx = previewScale * w / cg.width
+					sy = math.min(sx, previewScale * h / cg.height)
 				else
-					sy = a * h / cg.height
-					sx = math.min(sy, a * h / cg.width)
+					sy = previewScale * h / cg.height
+					sx = math.min(sy, previewScale * h / cg.width)
 				end
 
 				tx = (w - sx * cg.width) / 2
@@ -397,9 +409,9 @@ function _M.preview()
 				tmp:finish()
 
 				-- Overlays
-				cr:scale(1/sx, 1/sy)
+				cr:scale(1 / sx, 1 / sy)
 				cr:translate(-tx, -ty)
-				cr:set_source_rgba(0,0,0,overlay)
+				cr:set_source_rgba(0, 0, 0, overlay)
 				cr:rectangle(tx, ty, sx * cg.width, sy * cg.height)
 				cr:fill()
 			end
@@ -430,7 +442,6 @@ function _M.preview()
 	_M.preview_wbox:set_widget(preview_layout)
 end
 
-
 -- This starts the timer for updating and it shows the preview UI.
 function _M.showPreview()
 	_M.preview_live_timer.timeout = 1 / _M.settings.preview_box_fps
@@ -459,7 +470,7 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 
 	-- preview delay timer
 	local previewDelay = _M.settings.preview_box_delay / 1000
-	_M.previewDelayTimer = timer({timeout = previewDelay})
+	_M.previewDelayTimer = timer({ timeout = previewDelay })
 	_M.previewDelayTimer:connect_signal("timeout", function()
 		_M.previewDelayTimer:stop()
 		_M.showPreview()
@@ -469,7 +480,7 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 	-- Now that we have collected all windows, we should run a keygrabber
 	-- as long as the user is alt-tabbing:
 	keygrabber.run(
-		function (mod, key, event)
+		function(mod, key, event)
 			-- Stop alt-tabbing when the alt-key is released
 			if gears.table.hasitem(mod, mod_key1) then
 				if (key == release_key or key == "Escape") and event == "release" then
@@ -512,14 +523,13 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 					end
 
 					keygrabber.stop()
-				
 				elseif key == key_switch and event == "press" then
 					if gears.table.hasitem(mod, mod_key2) then
 						-- Move to previous client on Shift-Tab
 						_M.cycle(-1)
 					else
 						-- Move to next client on each Tab-press
-						_M.cycle( 1)
+						_M.cycle(1)
 					end
 				end
 			end
@@ -528,7 +538,7 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 
 	-- switch to next client
 	_M.cycle(dir)
-
 end -- function altTab
 
-return {switch = _M.switch, settings = _M.settings}
+return { switch = _M.switch, settings = _M.settings }
+
