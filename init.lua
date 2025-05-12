@@ -263,7 +263,7 @@ function _M.preview()
 	local text, textWidth, textHeight, maxText
 	local maxTextWidth = 0
 	local maxTextHeight = 0
-	local bigFont = textboxHeight / 2
+	local titleFont = textboxHeight / 2
 	cr:set_font_size(fontSize)
 	for i = 1, #leftRightTab do
 		text = _M.createPreviewText(leftRightTab[i])
@@ -277,7 +277,7 @@ function _M.preview()
 	end
 
 	while true do
-		cr:set_font_size(bigFont)
+		cr:set_font_size(titleFont)
 		textWidth = cr:text_extents(maxText).width
 		textHeight = cr:text_extents(maxText).height
 
@@ -285,9 +285,9 @@ function _M.preview()
 			break
 		end
 
-		bigFont = bigFont - 1
+		titleFont = titleFont - 1
 	end
-	local smallFont = bigFont * _M.settings.preview_box_title_font_size_factor
+	-- Use a consistent font size for all titles to prevent bumping
 
 	_M.preview_widgets = {}
 
@@ -302,7 +302,7 @@ function _M.preview()
 			if width ~= 0 and height ~= 0 then
 				local isSelected = c == _M.altTabTable[_M.altTabIndex].client
 				local overlay = isSelected and 0 or 0.6
-				local fontSize = isSelected and bigFont or smallFont
+				local fontSize = titleFont
 
 				-- Draw background for the client box
 				if isSelected then
