@@ -382,9 +382,10 @@ function _M.preview()
 		end
 
 		-- Add mouse handlers
-		_M.preview_widgets[i]:connect_signal("mouse::enter", function()
-			_M.cycle(leftRightTabToAltTabIndex[i] - _M.altTabIndex)
-		end)
+		-- Disabled hover selection - only click selection is active
+		-- _M.preview_widgets[i]:connect_signal("mouse::enter", function()
+		-- 	_M.cycle(leftRightTabToAltTabIndex[i] - _M.altTabIndex)
+		-- end)
 
 		-- Add click handler to switch to the window
 		_M.preview_widgets[i]:connect_signal("button::press", function(_, _, _, button)
