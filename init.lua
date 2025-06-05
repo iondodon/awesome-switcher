@@ -41,12 +41,109 @@ _M.originalTasklistBackgrounds = {} -- Store original backgrounds
 _M.tasklistWidget = nil             -- Cache for tasklist widget
 _M.lastClientOrder = {}             -- Cache for client order to detect changes
 _M.switcherNotification = nil       -- Notification for visual feedback
+_M.customClientOrder = {}           -- Custom client order for tasklist
+_M.originalTasklistSource = nil     -- Store original tasklist source function
 
 -- simple function for counting the size of a table
 function _M.tableLength(T)
 	local count = 0
 	for _ in pairs(T) do count = count + 1 end
 	return count
+end
+
+-- Initialize the custom client order
+function _M.initializeCustomOrder()
+	local clients = _M.getTasklistClients()
+	_M.customClientOrder = {}
+	for i, c in ipairs(clients) do
+		table.insert(_M.customClientOrder, c)
+	end
+end
+
+-- Move a client to the front of the custom order
+function _M.moveClientToFront(client)
+	if not client or not client.valid then
+		return
+	end
+
+	-- Remove client from current position
+	for i = 1, #_M.customClientOrder do
+		if _M.customClientOrder[i] == client then
+			table.remove(_M.customClientOrder, i)
+			break
+		end
+	end
+
+	-- Insert at the front
+	table.insert(_M.customClientOrder, 1, client)
+end
+
+-- Custom source function for tasklist that returns clients in our custom order
+function _M.customTasklistSource(screen)
+	if not _M.customClientOrder or #_M.customClientOrder == 0 then
+		_M.initializeCustomOrder()
+	end
+
+	-- Use the provided screen or fallback to mouse.screen
+	local s = screen or mouse.screen
+
+	-- Filter the custom order to only include valid clients that match the screen and tags
+	local filtered = {}
+	local function filter(c, scr)
+		return awful.widget.tasklist.filter.currenttags(c, scr)
+	end
+
+	for _, c in ipairs(_M.customClientOrder) do
+		if c.valid and (filter(c, s) or (_M.settings.cycle_all_clients and c.screen == s)) then
+			table.insert(filtered, c)
+		end
+	end
+
+	-- Add any new clients that might not be in our custom order yet
+	-- Get clients for the specific screen
+	local allClients = {}
+	for _, c in ipairs(client.get()) do
+		if filter(c, s) or (_M.settings.cycle_all_clients and c.screen == s) then
+			table.insert(allClients, c)
+		end
+	end
+
+	for _, c in ipairs(allClients) do
+		local found = false
+		for _, existing in ipairs(filtered) do
+			if existing == c then
+				found = true
+				break
+			end
+		end
+		if not found then
+			table.insert(filtered, c)
+			table.insert(_M.customClientOrder, c)
+		end
+	end
+
+	return filtered
+end
+
+-- Apply custom source to tasklist
+function _M.applyCustomSource()
+	-- Force tasklist refresh by emitting client signals that trigger tasklist updates
+	awesome.emit_signal("tasklist::update")
+
+	-- Trigger update for all screens
+	for s in screen do
+		if s and s.mytasklist then
+			if s.mytasklist.emit_signal then
+				s.mytasklist:emit_signal("widget::redraw_needed")
+			end
+		end
+	end
+end
+
+-- Restore original tasklist source (simplified since source is set at creation)
+function _M.restoreOriginalSource()
+	-- Since the source is set during tasklist creation, just trigger refresh
+	_M.applyCustomSource()
 end
 
 -- Get clients using the same filter and sort as the default tasklist
@@ -86,12 +183,13 @@ function _M.getClients()
 	-- Reset tasklist widget cache to get fresh order
 	_M.tasklistWidget = nil
 
-	-- Get clients using tasklist ordering
+	-- Use our custom client order if available
+	if _M.customClientOrder and #_M.customClientOrder > 0 then
+		return _M.customTasklistSource(mouse.screen)
+	end
+
+	-- Fallback to default tasklist ordering
 	local clients = _M.getTasklistClients()
-
-	-- Don't move focused client to front - keep wibar order
-	-- This ensures cycling follows visual order in taskbar
-
 	return clients
 end
 
@@ -284,17 +382,24 @@ end
 
 -- Reorder clients in the wibar based on the focus history
 function _M.reorderWibarClients()
-	-- This function would reorder the clients in the wibar/tasklist
-	-- based on the new focus order after Alt-Tab switching
-	-- Implementation depends on your specific wibar configuration
-
-	-- For now, we'll just ensure the client gets proper focus
+	-- Move the selected client to the front of our custom order
 	local selectedClient = _M.altTabTable[_M.altTabIndex].client
+	_M.moveClientToFront(selectedClient)
+
+	-- Update the tasklist to reflect the new order
+	_M.applyCustomSource()
+
+	-- Focus the selected client
 	selectedClient:jump_to()
 	client.focus = selectedClient
 end
 
 function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
+	-- Initialize custom client order if not already done
+	if not _M.customClientOrder or #_M.customClientOrder == 0 then
+		_M.initializeCustomOrder()
+	end
+
 	_M.populateAltTabTable()
 
 	if #_M.altTabTable == 0 then
@@ -308,15 +413,11 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 	-- Mark as active
 	_M.isActive = true
 
-	-- Find the index of the currently focused client
-	_M.altTabIndex = 1
-	if client.focus then
-		for i = 1, #_M.altTabTable do
-			if _M.altTabTable[i].client == client.focus then
-				_M.altTabIndex = i
-				break
-			end
-		end
+	-- Start cycling from the second client (index 2)
+	-- This assumes the first client in the list is the currently focused one
+	_M.altTabIndex = 2
+	if _M.altTabIndex > #_M.altTabTable then
+		_M.altTabIndex = 1
 	end
 
 	-- Store original backgrounds before highlighting
@@ -380,4 +481,40 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 	_M.cycle(dir)
 end -- function switch
 
-return { switch = _M.switch, settings = _M.settings }
+-- Handle client focus changes to maintain proper order
+function _M.onClientFocus(c)
+	-- Only update order if we're not in the middle of alt-tab switching
+	if not _M.isActive and c and c.valid then
+		_M.moveClientToFront(c)
+		_M.applyCustomSource()
+	end
+end
+
+-- Initialize the module when first loaded
+function _M.init()
+	_M.initializeCustomOrder()
+
+	-- Connect to client focus signal
+	client.connect_signal("focus", _M.onClientFocus)
+end
+
+-- Debug function to print current client order
+function _M.debugClientOrder()
+	print("=== Custom Client Order ===")
+	for i, c in ipairs(_M.customClientOrder or {}) do
+		if c.valid then
+			print(i .. ": " .. (c.name or c.class or "Unknown"))
+		end
+	end
+	print("==========================")
+end
+
+return {
+	switch = _M.switch,
+	settings = _M.settings,
+	customTasklistSource = _M.customTasklistSource,
+	init = _M.init,
+	applyCustomSource = _M.applyCustomSource,
+	moveClientToFront = _M.moveClientToFront,
+	debugClientOrder = _M.debugClientOrder
+}
