@@ -400,6 +400,12 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 		_M.initializeCustomOrder()
 	end
 
+	-- Move the currently focused client to the front of the list BEFORE populating altTabTable
+	if client.focus and client.focus.valid then
+		_M.moveClientToFront(client.focus)
+		_M.applyCustomSource()
+	end
+
 	_M.populateAltTabTable()
 
 	if #_M.altTabTable == 0 then
@@ -414,7 +420,7 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 	_M.isActive = true
 
 	-- Start cycling from the second client (index 2)
-	-- This assumes the first client in the list is the currently focused one
+	-- Now the first client in the list is guaranteed to be the currently focused one
 	_M.altTabIndex = 2
 	if _M.altTabIndex > #_M.altTabTable then
 		_M.altTabIndex = 1
@@ -477,16 +483,20 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 		end
 	)
 
-	-- switch to next client
-	_M.cycle(dir)
+	-- We've already set altTabIndex to 2, so we don't need to cycle initially
+	-- The first tab press will be handled by the keygrabber
 end -- function switch
 
 -- Handle client focus changes to maintain proper order
 function _M.onClientFocus(c)
 	-- Only update order if we're not in the middle of alt-tab switching
+	-- and the focused client is not already at the front
 	if not _M.isActive and c and c.valid then
-		_M.moveClientToFront(c)
-		_M.applyCustomSource()
+		-- Check if client is already at the front to avoid unnecessary updates
+		if not _M.customClientOrder or #_M.customClientOrder == 0 or _M.customClientOrder[1] ~= c then
+			_M.moveClientToFront(c)
+			_M.applyCustomSource()
+		end
 	end
 end
 
@@ -503,8 +513,13 @@ function _M.debugClientOrder()
 	print("=== Custom Client Order ===")
 	for i, c in ipairs(_M.customClientOrder or {}) do
 		if c.valid then
-			print(i .. ": " .. (c.name or c.class or "Unknown"))
+			local focused = (c == client.focus) and " [FOCUSED]" or ""
+			print(i .. ": " .. (c.name or c.class or "Unknown") .. focused)
 		end
+	end
+	print("Alt-Tab Active: " .. tostring(_M.isActive))
+	if _M.isActive then
+		print("Current Alt-Tab Index: " .. (_M.altTabIndex or "nil"))
 	end
 	print("==========================")
 end
