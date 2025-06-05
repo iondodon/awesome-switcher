@@ -19,49 +19,27 @@ local debug = debug
 local pairs = pairs
 local unpack = unpack or table.unpack
 
-local surface = cairo.ImageSurface(cairo.Format.RGB24, 20, 20)
-local cr = cairo.Context(surface)
-
 local _M = {}
 
 -- settings
-
 _M.settings = {
-	preview_box                        = true,
-	preview_box_bg                     = "#ddddddaa",
-	preview_box_border                 = "#22222200",
-	preview_box_fps                    = 30,
-	preview_box_delay                  = 150,
-	preview_box_title_font             = { "sans", "italic", "normal" },
-	preview_box_title_font_size_factor = 0.8,
-	preview_box_title_color            = { 0, 0, 0, 1 },
-	preview_box_selected_bg            = "#5294e2aa",
-	preview_box_selected_border        = "#5294e2ff",
+	cycle_raise_client = true,
+	cycle_all_clients = false,
 
-	client_opacity                     = false,
-	client_opacity_value_selected      = 1,
-	client_opacity_value_in_focus      = 0.5,
-	client_opacity_value               = 0.5,
-
-	cycle_raise_client                 = true,
-	cycle_all_clients                  = false,
+	-- Wibar highlighting settings
+	wibar_highlight_bg = "#5294e2aa",  -- background color for selected client in wibar
+	wibar_highlight_border = "#5294e2ff", -- border color for selected client in wibar
+	wibar_normal_bg = nil,             -- normal background (nil = default)
+	wibar_normal_border = nil,         -- normal border (nil = default)
 }
-
--- Create a wibox to contain all the client-widgets
-_M.preview_wbox = wibox({ width = screen[mouse.screen].geometry.width })
-_M.preview_wbox.border_width = 3
-_M.preview_wbox.ontop = true
-_M.preview_wbox.visible = false
-
-_M.preview_live_timer = timer({ timeout = 1 / _M.settings.preview_box_fps })
-_M.preview_widgets = {}
 
 _M.altTabTable = {}
 _M.altTabIndex = 1
-
-_M.source = string.sub(debug.getinfo(1, 'S').source, 2)
-_M.path = string.sub(_M.source, 1, string.find(_M.source, "/[^/]*$"))
-_M.noicon = _M.path .. "noicon.png"
+_M.originalTasklistOrder = {}
+_M.isActive = false
+_M.originalTasklistBackgrounds = {} -- Store original backgrounds
+_M.tasklistWidget = nil             -- Cache for tasklist widget
+_M.switcherNotification = nil       -- Notification for visual feedback
 
 -- simple function for counting the size of a table
 function _M.tableLength(T)
@@ -118,7 +96,6 @@ function _M.getClients()
 				end
 			end
 
-
 			if addToTable then
 				table.insert(clients, c)
 			end
@@ -165,31 +142,134 @@ function _M.clientsHaveChanged()
 	return _M.tableLength(clients) ~= _M.tableLength(_M.altTabTable)
 end
 
-function _M.createPreviewText(client)
-	if client.class then
-		return " - " .. client.class
-	else
-		return " - " .. client.name
+-- Find tasklist widget for the current screen
+function _M.findTasklistWidget()
+	if _M.tasklistWidget then
+		return _M.tasklistWidget
+	end
+
+	local s = mouse.screen
+	if not s.mywibar or not s.mywibar.widget then
+		return nil
+	end
+
+	-- Try to find the tasklist widget in the wibar
+	local function findTasklist(widget)
+		if widget.get_children then
+			local children = widget:get_children()
+			for _, child in ipairs(children) do
+				if child.get_children then
+					local result = findTasklist(child)
+					if result then return result end
+				end
+				-- Check if this is a tasklist widget (awful.widget.tasklist)
+				if child.update and child.buttons and child._private and child._private.data then
+					return child
+				end
+			end
+		end
+		return nil
+	end
+
+	_M.tasklistWidget = findTasklist(s.mywibar.widget)
+	return _M.tasklistWidget
+end
+
+-- Store original widget states when starting Alt-Tab
+function _M.storeOriginalBackgrounds()
+	_M.originalTasklistBackgrounds = {}
+	local s = mouse.screen
+
+	-- Find all tasklist buttons for our clients
+	if s.mywibar and s.mywibar.widget then
+		for i = 1, #_M.altTabTable do
+			local c = _M.altTabTable[i].client
+			_M.originalTasklistBackgrounds[c] = {
+				urgent = c.urgent,
+				focus = c == client.focus
+			}
+		end
 	end
 end
 
--- Preview is created here.
-function _M.clientOpacity()
-	-- Function disabled to prevent darkening effects
-	return
+-- Restore original widget states when ending Alt-Tab
+function _M.restoreOriginalBackgrounds()
+	-- Reset all clients to their original state
+	for c, state in pairs(_M.originalTasklistBackgrounds) do
+		if c.valid then
+			c.urgent = state.urgent
+		end
+	end
+	_M.originalTasklistBackgrounds = {}
+
+	-- Emit signal to update tasklist
+	awesome.emit_signal("tasklist::update")
+
+	-- Also try to update all screens
+	for s in screen do
+		if s.mywibar then
+			s.mywibar:emit_signal("widget::updated")
+		end
+	end
 end
 
--- This is called any _M.settings.preview_box_fps milliseconds. In case the list
--- of clients is changed, we need to redraw the whole preview box. Otherwise, a
--- simple widget::updated signal is enough
-function _M.updatePreview()
-	if _M.clientsHaveChanged() then
-		_M.populateAltTabTable()
-		_M.preview()
+-- Create a notification to show current selection (fallback visual feedback)
+function _M.showSelectionNotification()
+	if not _M.isActive or #_M.altTabTable == 0 then
+		return
 	end
 
-	for i = 1, #_M.preview_widgets do
-		_M.preview_widgets[i]:emit_signal("widget::updated")
+	local selectedClient = _M.altTabTable[_M.altTabIndex].client
+	local clientName = selectedClient.name or selectedClient.class or "Unknown"
+
+	-- Cancel previous notification
+	if _M.switcherNotification then
+		naughty.destroy(_M.switcherNotification)
+	end
+
+	-- Show new notification
+	_M.switcherNotification = naughty.notify({
+		title = "Alt-Tab Switcher",
+		text = string.format("(%d/%d) %s", _M.altTabIndex, #_M.altTabTable, clientName),
+		timeout = 0.5,
+		position = "top_middle",
+		preset = naughty.config.presets.low
+	})
+end
+
+-- Highlight the selected client in the wibar
+function _M.highlightWibarClient()
+	if not _M.isActive or #_M.altTabTable == 0 then
+		return
+	end
+
+	-- Method 1: Try to modify client urgent state
+	-- Reset all clients first
+	for i = 1, #_M.altTabTable do
+		local c = _M.altTabTable[i].client
+		if c.valid then
+			c.urgent = false
+		end
+	end
+
+	-- Set the selected client as urgent to highlight it
+	local selectedClient = _M.altTabTable[_M.altTabIndex].client
+	if selectedClient.valid then
+		selectedClient.urgent = true
+
+		-- Method 2: Force focus temporarily for visual feedback (will be restored)
+		client.focus = selectedClient
+	end
+
+	-- Method 3: Update all widgets
+	awesome.emit_signal("tasklist::update")
+
+	-- Method 4: Show notification as fallback visual feedback
+	_M.showSelectionNotification()
+
+	-- Ensure the client is raised if setting is enabled
+	if _M.settings.cycle_raise_client then
+		selectedClient:raise()
 	end
 end
 
@@ -202,246 +282,26 @@ function _M.cycle(dir)
 		_M.altTabIndex = #_M.altTabTable -- wrap around
 	end
 
-	_M.updatePreview()
+	-- Update wibar highlighting
+	_M.highlightWibarClient()
 
 	_M.altTabTable[_M.altTabIndex].client.minimized = false
-
-	if not _M.settings.preview_box and not _M.settings.client_opacity then
-		client.focus = _M.altTabTable[_M.altTabIndex].client
-	end
-
-	if _M.settings.client_opacity and _M.preview_wbox.visible then
-		_M.clientOpacity()
-	end
 
 	if _M.settings.cycle_raise_client == true then
 		_M.altTabTable[_M.altTabIndex].client:raise()
 	end
 end
 
-function _M.preview()
-	if not _M.settings.preview_box then return end
+-- Reorder clients in the wibar based on the focus history
+function _M.reorderWibarClients()
+	-- This function would reorder the clients in the wibar/tasklist
+	-- based on the new focus order after Alt-Tab switching
+	-- Implementation depends on your specific wibar configuration
 
-	-- Apply settings
-	_M.preview_wbox:set_bg(_M.settings.preview_box_bg)
-	_M.preview_wbox.border_color = _M.settings.preview_box_border
-
-	-- Make the wibox the right size, based on the number of clients
-	local n = math.max(7, #_M.altTabTable)
-	local W = screen[mouse.screen].geometry.width -- + 2 * _M.preview_wbox.border_width
-	local w = W / n                            -- widget width
-	local h = w * 0.75                         -- widget height
-	local textboxHeight = w * 0.125
-
-	local x = screen[mouse.screen].geometry.x - _M.preview_wbox.border_width
-	local y = screen[mouse.screen].geometry.y + (screen[mouse.screen].geometry.height - h - textboxHeight) / 2
-	_M.preview_wbox:geometry({ x = x, y = y, width = W, height = h + textboxHeight })
-
-	-- create a list that holds the clients to preview, from left to right
-	local leftRightTab = {}
-	local leftRightTabToAltTabIndex = {} -- save mapping from leftRightTab to altTabTable as well
-
-	-- Simply add all clients from left to right in the alt-tab order
-	for i = 1, #_M.altTabTable do
-		table.insert(leftRightTab, _M.altTabTable[i].client)
-		table.insert(leftRightTabToAltTabIndex, i)
-	end
-
-	-- determine fontsize -> find maximum classname-length
-	local text, textWidth, textHeight, maxText
-	local maxTextWidth = 0
-	local maxTextHeight = 0
-	local titleFont = textboxHeight / 2
-	cr:set_font_size(fontSize)
-	for i = 1, #leftRightTab do
-		text = _M.createPreviewText(leftRightTab[i])
-		textWidth = cr:text_extents(text).width
-		textHeight = cr:text_extents(text).height
-		if textWidth > maxTextWidth or textHeight > maxTextHeight then
-			maxTextHeight = textHeight
-			maxTextWidth = textWidth
-			maxText = text
-		end
-	end
-
-	while true do
-		cr:set_font_size(titleFont)
-		textWidth = cr:text_extents(maxText).width
-		textHeight = cr:text_extents(maxText).height
-
-		if textWidth < w - textboxHeight and textHeight < textboxHeight then
-			break
-		end
-
-		titleFont = titleFont - 1
-	end
-	-- Use a consistent font size for all titles to prevent bumping
-
-	_M.preview_widgets = {}
-
-	-- create all the widgets
-	for i = 1, #leftRightTab do
-		_M.preview_widgets[i] = wibox.widget.base.make_widget()
-		_M.preview_widgets[i].fit = function(preview_widget, width, height)
-			return w, h
-		end
-		local c = leftRightTab[i]
-		_M.preview_widgets[i].draw = function(preview_widget, preview_wbox, cr, width, height)
-			if width ~= 0 and height ~= 0 then
-				local isSelected = c == _M.altTabTable[_M.altTabIndex].client
-				local overlay = isSelected and 0 or 0.6
-				local fontSize = titleFont
-
-				-- Draw background for the client box
-				if isSelected then
-					cr:set_source_rgba(gears.color.parse_color(_M.settings.preview_box_selected_bg))
-					cr:rectangle(0, 0, width, height)
-					cr:fill()
-
-					-- Draw border for selected client
-					cr:set_source_rgba(gears.color.parse_color(_M.settings.preview_box_selected_border))
-					cr:set_line_width(2)
-					cr:rectangle(1, 1, width - 2, height - 2)
-					cr:stroke()
-				end
-
-				local sx, sy, tx, ty
-
-				-- Icons
-				local icon
-				if c.icon == nil then
-					icon = gears.surface(gears.surface.load(_M.noicon))
-				else
-					icon = gears.surface(c.icon)
-				end
-
-				local iconboxWidth = 0.9 * textboxHeight
-				local iconboxHeight = iconboxWidth
-
-				-- Titles
-				cr:select_font_face(unpack(_M.settings.preview_box_title_font))
-				cr:set_font_face(cr:get_font_face())
-				cr:set_font_size(fontSize)
-
-				text = _M.createPreviewText(c)
-				textWidth = cr:text_extents(text).width
-				textHeight = cr:text_extents(text).height
-
-				local titleboxWidth = textWidth + iconboxWidth
-				local titleboxHeight = textboxHeight
-
-				-- Draw icons
-				tx = (w - titleboxWidth) / 2
-				ty = h
-				sx = iconboxWidth / icon.width
-				sy = iconboxHeight / icon.height
-
-				cr:translate(tx, ty)
-				cr:scale(sx, sy)
-				cr:set_source_surface(icon, 0, 0)
-				cr:paint()
-				cr:scale(1 / sx, 1 / sy)
-				cr:translate(-tx, -ty)
-
-				-- Draw titles
-				tx = tx + iconboxWidth
-				ty = h + (textboxHeight + textHeight) / 2
-
-				cr:set_source_rgba(unpack(_M.settings.preview_box_title_color))
-				cr:move_to(tx, ty)
-				cr:show_text(text)
-				cr:stroke()
-
-				-- Draw previews
-				local cg = c:geometry()
-				local previewScale = 0.8 -- Fixed scale for all previews
-
-				if cg.width > cg.height then
-					sx = previewScale * w / cg.width
-					sy = math.min(sx, previewScale * h / cg.height)
-				else
-					sy = previewScale * h / cg.height
-					sx = math.min(sy, previewScale * h / cg.width)
-				end
-
-				tx = (w - sx * cg.width) / 2
-				ty = (h - sy * cg.height) / 2
-
-				local tmp = gears.surface(c.content)
-				cr:translate(tx, ty)
-				cr:scale(sx, sy)
-				cr:set_source_surface(tmp, 0, 0)
-				cr:paint()
-				tmp:finish()
-
-				-- Overlays
-				cr:scale(1 / sx, 1 / sy)
-				cr:translate(-tx, -ty)
-				-- Removed darkening overlay
-			end
-		end
-
-		-- Add mouse handlers
-		-- Disabled hover selection - only click selection is active
-		-- _M.preview_widgets[i]:connect_signal("mouse::enter", function()
-		-- 	_M.cycle(leftRightTabToAltTabIndex[i] - _M.altTabIndex)
-		-- end)
-
-		-- Add click handler to switch to the window
-		_M.preview_widgets[i]:connect_signal("button::press", function(_, _, _, button)
-			if button == 1 then -- Left mouse button
-				_M.cycle(leftRightTabToAltTabIndex[i] - _M.altTabIndex)
-
-				-- Hide the preview box
-				_M.preview_wbox.visible = false
-				_M.preview_live_timer:stop()
-
-				-- Focus and raise the selected client
-				local c = _M.altTabTable[_M.altTabIndex].client
-				c:raise()
-				c:jump_to()
-				client.focus = c
-
-				-- Restore opacity for all clients
-				for j = 1, #_M.altTabTable do
-					_M.altTabTable[j].client.opacity = _M.altTabTable[j].opacity
-				end
-
-				-- Stop the keygrabber
-				keygrabber.stop()
-			end
-		end)
-	end
-
-	-- Spacers left and right
-	local spacer = wibox.widget.base.make_widget()
-	spacer.fit = function(leftSpacer, width, height)
-		return (W - w * #_M.altTabTable) / 2, _M.preview_wbox.height
-	end
-	spacer.draw = function(preview_widget, preview_wbox, cr, width, height) end
-
-	--layout
-	preview_layout = wibox.layout.fixed.horizontal()
-
-	preview_layout:add(spacer)
-	for i = 1, #leftRightTab do
-		preview_layout:add(_M.preview_widgets[i])
-	end
-	preview_layout:add(spacer)
-
-	_M.preview_wbox:set_widget(preview_layout)
-end
-
--- This starts the timer for updating and it shows the preview UI.
-function _M.showPreview()
-	_M.preview_live_timer.timeout = 1 / _M.settings.preview_box_fps
-	_M.preview_live_timer:connect_signal("timeout", _M.updatePreview)
-	_M.preview_live_timer:start()
-
-	_M.preview()
-	_M.preview_wbox.visible = true
-
-	_M.clientOpacity()
+	-- For now, we'll just ensure the client gets proper focus
+	local selectedClient = _M.altTabTable[_M.altTabIndex].client
+	selectedClient:jump_to()
+	client.focus = selectedClient
 end
 
 function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
@@ -455,17 +315,17 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 		return
 	end
 
+	-- Mark as active
+	_M.isActive = true
+
 	-- reset index
 	_M.altTabIndex = 1
 
-	-- preview delay timer
-	local previewDelay = _M.settings.preview_box_delay / 1000
-	_M.previewDelayTimer = timer({ timeout = previewDelay })
-	_M.previewDelayTimer:connect_signal("timeout", function()
-		_M.previewDelayTimer:stop()
-		_M.showPreview()
-	end)
-	_M.previewDelayTimer:start()
+	-- Store original backgrounds before highlighting
+	_M.storeOriginalBackgrounds()
+
+	-- Immediately highlight the first client
+	_M.highlightWibarClient()
 
 	-- Now that we have collected all windows, we should run a keygrabber
 	-- as long as the user is alt-tabbing:
@@ -474,24 +334,17 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 			-- Stop alt-tabbing when the alt-key is released
 			if gears.table.hasitem(mod, mod_key1) then
 				if (key == release_key or key == "Escape") and event == "release" then
-					if _M.preview_wbox.visible == true then
-						_M.preview_wbox.visible = false
-						_M.preview_live_timer:stop()
-					else
-						_M.previewDelayTimer:stop()
-					end
+					_M.isActive = false
 
 					if key == "Escape" then
+						-- Restore original state
 						for i = 1, #_M.altTabTable do
 							_M.altTabTable[i].client.opacity = _M.altTabTable[i].opacity
 							_M.altTabTable[i].client.minimized = _M.altTabTable[i].minimized
 						end
 					else
-						-- Raise clients in order to restore history
-						local c = _M.altTabTable[_M.altTabIndex].client
-						c:raise()
-						c:jump_to()
-						client.focus = c
+						-- Switch to selected client and reorder
+						_M.reorderWibarClients()
 
 						-- restore minimized clients and opacity
 						for i = 1, #_M.altTabTable do
@@ -500,6 +353,15 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 							end
 							_M.altTabTable[i].client.opacity = _M.altTabTable[i].opacity
 						end
+					end
+
+					-- Clear highlighting and restore original backgrounds
+					_M.restoreOriginalBackgrounds()
+
+					-- Clean up notification
+					if _M.switcherNotification then
+						naughty.destroy(_M.switcherNotification)
+						_M.switcherNotification = nil
 					end
 
 					keygrabber.stop()
@@ -518,6 +380,6 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 
 	-- switch to next client
 	_M.cycle(dir)
-end -- function altTab
+end -- function switch
 
 return { switch = _M.switch, settings = _M.settings }
