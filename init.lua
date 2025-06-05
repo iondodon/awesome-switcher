@@ -39,6 +39,7 @@ _M.originalTasklistOrder = {}
 _M.isActive = false
 _M.originalTasklistBackgrounds = {} -- Store original backgrounds
 _M.tasklistWidget = nil             -- Cache for tasklist widget
+_M.lastClientOrder = {}             -- Cache for client order to detect changes
 _M.switcherNotification = nil       -- Notification for visual feedback
 
 -- simple function for counting the size of a table
@@ -48,59 +49,48 @@ function _M.tableLength(T)
 	return count
 end
 
--- this function returns the list of clients to be shown.
-function _M.getClients()
+-- Get clients using the same filter and sort as the default tasklist
+function _M.getTasklistClients()
+	local s = mouse.screen
 	local clients = {}
 
-	-- Get focus history for current tag
-	local s = mouse.screen;
-	local idx = 0
-	local c = awful.client.focus.history.get(s, idx)
-
-	while c do
-		table.insert(clients, c)
-
-		idx = idx + 1
-		c = awful.client.focus.history.get(s, idx)
+	-- Use awful.widget.tasklist's default filter function
+	local function filter(c, screen)
+		-- This mimics the default tasklist filter
+		return awful.widget.tasklist.filter.currenttags(c, screen)
 	end
 
-	-- Minimized clients will not appear in the focus history
-	-- Find them by cycling through all clients, and adding them to the list
-	-- if not already there.
-	-- This will preserve the history AND enable you to focus on minimized clients
-
-	local t = s.selected_tag
-	local all = client.get(s)
-
-	for i = 1, #all do
-		local c = all[i]
-		local ctags = c:tags();
-
-		-- check if the client is on the current tag
-		local isCurrentTag = false
-		for j = 1, #ctags do
-			if t == ctags[j] then
-				isCurrentTag = true
-				break
-			end
-		end
-
-		if isCurrentTag or _M.settings.cycle_all_clients then
-			-- check if client is already in the history
-			-- if not, add it
-			local addToTable = true
-			for k = 1, #clients do
-				if clients[k] == c then
-					addToTable = false
-					break
-				end
-			end
-
-			if addToTable then
-				table.insert(clients, c)
-			end
+	-- Get all clients and filter them the same way tasklist does
+	for _, c in ipairs(client.get()) do
+		if filter(c, s) or (_M.settings.cycle_all_clients and c.screen == s) then
+			table.insert(clients, c)
 		end
 	end
+
+	-- Sort clients the same way the default tasklist does (by class, then by instance)
+	table.sort(clients, function(a, b)
+		if a.class and b.class and a.class ~= b.class then
+			return a.class < b.class
+		elseif a.instance and b.instance then
+			return a.instance < b.instance
+		else
+			return a.window < b.window
+		end
+	end)
+
+	return clients
+end
+
+-- this function returns the list of clients in the same order as wibar
+function _M.getClients()
+	-- Reset tasklist widget cache to get fresh order
+	_M.tasklistWidget = nil
+
+	-- Get clients using tasklist ordering
+	local clients = _M.getTasklistClients()
+
+	-- Don't move focused client to front - keep wibar order
+	-- This ensures cycling follows visual order in taskbar
 
 	return clients
 end
@@ -318,13 +308,21 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 	-- Mark as active
 	_M.isActive = true
 
-	-- reset index
+	-- Find the index of the currently focused client
 	_M.altTabIndex = 1
+	if client.focus then
+		for i = 1, #_M.altTabTable do
+			if _M.altTabTable[i].client == client.focus then
+				_M.altTabIndex = i
+				break
+			end
+		end
+	end
 
 	-- Store original backgrounds before highlighting
 	_M.storeOriginalBackgrounds()
 
-	-- Immediately highlight the first client
+	-- Immediately highlight the current client
 	_M.highlightWibarClient()
 
 	-- Now that we have collected all windows, we should run a keygrabber
