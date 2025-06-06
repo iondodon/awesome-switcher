@@ -43,6 +43,8 @@ _M.lastClientOrder = {}             -- Cache for client order to detect changes
 _M.switcherNotification = nil       -- Notification for visual feedback
 _M.customClientOrder = {}           -- Custom client order for tasklist
 _M.originalTasklistSource = nil     -- Store original tasklist source function
+_M.originalFocusedClient = nil      -- Store the originally focused client before switching
+_M.originalCustomOrder = {}         -- Store the original custom order before switching
 
 -- simple function for counting the size of a table
 function _M.tableLength(T)
@@ -469,6 +471,14 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 		_M.initializeCustomOrder()
 	end
 
+	-- Store the original state before any changes
+	_M.originalFocusedClient = client.focus
+	-- Make a deep copy of the current custom order
+	_M.originalCustomOrder = {}
+	for i, c in ipairs(_M.customClientOrder) do
+		table.insert(_M.originalCustomOrder, c)
+	end
+
 	-- Move the currently focused client to the front of the list BEFORE populating altTabTable
 	if client.focus and client.focus.valid then
 		_M.moveClientToFront(client.focus)
@@ -509,12 +519,35 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 			if gears.table.hasitem(mod, mod_key1) then
 				if (key == release_key or key == "Escape") and event == "release" then
 					if key == "Escape" then
-						-- Restore original state without moving clients
+						-- Debug: Log ESC cancellation
+						local debugFile = io.open("/tmp/awesome-switcher-debug.log", "a")
+						if debugFile then
+							debugFile:write(os.date("%H:%M:%S") ..
+								" - ESC pressed, cancelling switch and restoring original state\n")
+							debugFile:close()
+						end
+
+						-- Restore original client order
+						_M.customClientOrder = {}
+						for i, c in ipairs(_M.originalCustomOrder) do
+							table.insert(_M.customClientOrder, c)
+						end
+
+						-- Restore original focused client
+						if _M.originalFocusedClient and _M.originalFocusedClient.valid then
+							_M.originalFocusedClient:jump_to()
+							client.focus = _M.originalFocusedClient
+						end
+
+						-- Restore client states (opacity and minimized)
 						_M.isActive = false
 						for i = 1, #_M.altTabTable do
 							_M.altTabTable[i].client.opacity = _M.altTabTable[i].opacity
 							_M.altTabTable[i].client.minimized = _M.altTabTable[i].minimized
 						end
+
+						-- Update the tasklist to reflect the restored order
+						_M.applyCustomSource()
 					else
 						-- Switch to selected client and reorder
 						-- Keep _M.isActive = true while we reorder to prevent onClientFocus interference

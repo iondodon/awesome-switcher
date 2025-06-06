@@ -3,18 +3,15 @@
 This plugin integrates the familiar application switcher functionality in the
 [awesome window manager](https://github.com/awesomeWM/awesome).
 
-![Screenshot of awesome-switcher](screenshot.gif)
-
 Features:
 
-- Live previews while alt-tabbing AND/OR Opacity effects for unselected clients
-- Visual highlighting of selected window with customizable colors
+- **Smart tasklist reordering**: Selected clients are moved to the front of the tasklist when switching
+- **ESC cancellation**: Press ESC while Alt-Tab switching to cancel and restore the original state
+- Visual highlighting of selected window in the tasklist with customizable colors
 - Easily adjustable settings
-- No previews when modifier (e.g.: Alt) is released within some time-frame
 - Backward cycle using second modifier (e.g.: Shift)
 - Intuitive order, respecting your client history
-- Includes minimized clients (in contrast to some of the default window-switching utilies)
-- Preview selectable by mouse
+- Includes minimized clients (in contrast to some of the default window-switching utilities)
 
 ## Installation
 
@@ -31,29 +28,36 @@ Then add the dependency to your Awesome `rc.lua` config file:
     local switcher = require("awesome-switcher")
 ```
 
+### Enhanced Tasklist Integration
+
+To enable the tasklist reordering feature, you need to configure your tasklist widget to use the switcher's custom source function and initialize the switcher:
+
+```Lua
+    -- In your tasklist widget configuration (usually in your screen setup)
+    s.mytasklist = awful.widget.tasklist {
+        screen  = s,
+        filter  = awful.widget.tasklist.filter.currenttags,
+        buttons = tasklist_buttons,
+        source  = switcher.customTasklistSource  -- Add this line for tasklist reordering
+    }
+
+    -- Initialize the switcher after setting up screens (add this after your screen setup)
+    switcher.init()
+```
+
 ## Configuration
 
 Optionally edit any subset of the following settings, the defaults are:
 
 ```Lua
-    switcher.settings.preview_box = true,                                 -- display preview-box
-    switcher.settings.preview_box_bg = "#ddddddaa",                       -- background color
-    switcher.settings.preview_box_border = "#22222200",                   -- border-color
-    switcher.settings.preview_box_fps = 30,                               -- refresh framerate
-    switcher.settings.preview_box_delay = 150,                            -- delay in ms
-    switcher.settings.preview_box_title_font = {"sans","italic","normal"},-- the font for cairo
-    switcher.settings.preview_box_title_font_size_factor = 0.8,           -- the font sizing factor
-    switcher.settings.preview_box_title_color = {0,0,0,1},                -- the font color
-    switcher.settings.preview_box_selected_bg = "#5294e2aa",              -- background color for selected client
-    switcher.settings.preview_box_selected_border = "#5294e2ff",          -- border color for selected client
-
-    switcher.settings.client_opacity = false,                             -- opacity for unselected clients
-    switcher.settings.client_opacity_value = 0.5,                         -- alpha-value for any client
-    switcher.settings.client_opacity_value_in_focus = 0.5,                -- alpha-value for the client currently in focus
-    switcher.settings.client_opacity_value_selected = 1,                  -- alpha-value for the selected client
-
     switcher.settings.cycle_raise_client = true,                          -- raise clients on cycle
-    switcher.settings.cycle_all_clients  = false,                          -- cycle through all clients
+    switcher.settings.cycle_all_clients = false,                          -- cycle through all clients
+
+    -- Wibar highlighting settings (for tasklist integration)
+    switcher.settings.wibar_highlight_bg = "#5294e2aa",                   -- background color for selected client in wibar
+    switcher.settings.wibar_highlight_border = "#5294e2ff",               -- border color for selected client in wibar
+    switcher.settings.wibar_normal_bg = nil,                              -- normal background (nil = default)
+    switcher.settings.wibar_normal_border = nil,                          -- normal border (nil = default)
 ```
 
 Then add key-bindings. On my particular system I switch to the next client by Alt-Tab and
@@ -74,16 +78,46 @@ back with Alt-Shift-Tab. Therefore, this is what my keybindings look like:
 Please keep in mind that "Mod1" and "Shift" are actual modifiers and not real keys.
 This is important for the keygrabber as the keygrabber uses "Shift_L" for a pressed (left) "Shift" key.
 
-### Customizing the Selected Window Highlight
+## Usage
 
-You can customize the appearance of the selected window in the switcher by modifying these settings:
+The switcher provides enhanced Alt-Tab functionality with the following behaviors:
+
+### Normal Switching
+
+1. **Hold Alt + press Tab**: Start cycling through windows
+2. **Continue pressing Tab**: Move to the next window in the cycle
+3. **Add Shift**: Press Shift+Tab to cycle backwards
+4. **Release Alt**: Confirm your selection and move the selected window to the front of the tasklist
+
+### Cancellation
+
+1. **Hold Alt + press Tab**: Start cycling through windows
+2. **Press Tab multiple times**: Navigate to different windows
+3. **Press ESC (while still holding Alt)**: Cancel the operation and return to the original window and tasklist order
+
+### Tasklist Integration
+
+When the enhanced tasklist integration is enabled:
+
+- The currently focused window automatically moves to the front of the tasklist
+- When you complete an Alt-Tab operation, the selected window moves to the front
+- The tasklist visually reflects the most recently used order
+- ESC cancellation restores both focus and tasklist order to the original state
+
+### Customizing the Tasklist Highlighting
+
+You can customize the appearance of the selected window in the tasklist by modifying these settings:
 
 ```Lua
-    -- Change the background color of the selected window (semi-transparent blue)
-    switcher.settings.preview_box_selected_bg = "#5294e2aa"
+    -- Change the background color of the selected window in the tasklist
+    switcher.settings.wibar_highlight_bg = "#5294e2aa"
 
-    -- Change the border color of the selected window (solid blue)
-    switcher.settings.preview_box_selected_border = "#5294e2ff"
+    -- Change the border color of the selected window in the tasklist
+    switcher.settings.wibar_highlight_border = "#5294e2ff"
+
+    -- Normal background and border (nil = use default theme colors)
+    switcher.settings.wibar_normal_bg = nil
+    switcher.settings.wibar_normal_border = nil
 ```
 
 The colors use the format "#RRGGBBAA" where:
@@ -101,4 +135,3 @@ and later improved upon by [Matthias Berla](https://github.com/berlam).
 ## License
 
 See [LICENSE](LICENSE).
-
