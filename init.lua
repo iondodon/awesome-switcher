@@ -82,19 +82,7 @@ end
 
 -- Custom source function for tasklist that returns clients in our custom order
 function _M.customTasklistSource(screen)
-	-- Debug: Write to file when source function is called
-	local debugFile = io.open("/tmp/awesome-switcher-debug.log", "a")
-	if debugFile then
-		debugFile:write(os.date("%H:%M:%S") .. " - customTasklistSource called for screen: " .. tostring(screen) .. "\n")
-		debugFile:close()
-	end
-
 	if not _M.customClientOrder or #_M.customClientOrder == 0 then
-		local debugFile = io.open("/tmp/awesome-switcher-debug.log", "a")
-		if debugFile then
-			debugFile:write(os.date("%H:%M:%S") .. " - Initializing custom order...\n")
-			debugFile:close()
-		end
 		_M.initializeCustomOrder()
 	end
 
@@ -136,28 +124,11 @@ function _M.customTasklistSource(screen)
 		end
 	end
 
-	-- Debug: Write the order being returned to file
-	local debugFile = io.open("/tmp/awesome-switcher-debug.log", "a")
-	if debugFile then
-		debugFile:write(os.date("%H:%M:%S") .. " - Returning client order:\n")
-		for i, c in ipairs(filtered) do
-			debugFile:write("  " .. i .. ": " .. (c.name or c.class or "Unknown") .. "\n")
-		end
-		debugFile:close()
-	end
-
 	return filtered
 end
 
 -- Apply custom source to tasklist
 function _M.applyCustomSource()
-	-- Debug: Log that we're applying custom source
-	local debugFile = io.open("/tmp/awesome-switcher-debug.log", "a")
-	if debugFile then
-		debugFile:write(os.date("%H:%M:%S") .. " - applyCustomSource called\n")
-		debugFile:close()
-	end
-
 	-- Simpler approach: force update by emitting client property changes
 	-- This should trigger the tasklist to refresh and call our source function
 	local selectedClient = nil
@@ -181,12 +152,6 @@ function _M.applyCustomSource()
 		client.emit_signal("list")
 		return false -- Don't repeat
 	end)
-
-	local debugFile = io.open("/tmp/awesome-switcher-debug.log", "a")
-	if debugFile then
-		debugFile:write(os.date("%H:%M:%S") .. " - Finished applyCustomSource\n")
-		debugFile:close()
-	end
 end
 
 -- Restore original tasklist source (simplified since source is set at creation)
@@ -434,14 +399,6 @@ function _M.reorderWibarClients()
 	-- Move the selected client to the front of our custom order
 	local selectedClient = _M.altTabTable[_M.altTabIndex].client
 
-	-- Debug: Write what we're doing to file
-	local debugFile = io.open("/tmp/awesome-switcher-debug.log", "a")
-	if debugFile then
-		debugFile:write(os.date("%H:%M:%S") ..
-			" - Reordering: Moving '" .. (selectedClient.name or selectedClient.class or "Unknown") .. "' to front\n")
-		debugFile:close()
-	end
-
 	_M.moveClientToFront(selectedClient)
 
 	-- Focus the selected client first
@@ -450,19 +407,6 @@ function _M.reorderWibarClients()
 
 	-- Update the tasklist to reflect the new order
 	_M.applyCustomSource()
-
-	-- Debug: Write the new order to file
-	local debugFile = io.open("/tmp/awesome-switcher-debug.log", "a")
-	if debugFile then
-		debugFile:write(os.date("%H:%M:%S") .. " - New order after reordering:\n")
-		for i, c in ipairs(_M.customClientOrder or {}) do
-			if c.valid then
-				local focused = (c == client.focus) and " [FOCUSED]" or ""
-				debugFile:write("  " .. i .. ": " .. (c.name or c.class or "Unknown") .. focused .. "\n")
-			end
-		end
-		debugFile:close()
-	end
 end
 
 function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
@@ -519,14 +463,6 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 			if gears.table.hasitem(mod, mod_key1) then
 				if (key == release_key or key == "Escape") and event == "release" then
 					if key == "Escape" then
-						-- Debug: Log ESC cancellation
-						local debugFile = io.open("/tmp/awesome-switcher-debug.log", "a")
-						if debugFile then
-							debugFile:write(os.date("%H:%M:%S") ..
-								" - ESC pressed, cancelling switch and restoring original state\n")
-							debugFile:close()
-						end
-
 						-- Restore original client order
 						_M.customClientOrder = {}
 						for i, c in ipairs(_M.originalCustomOrder) do
@@ -597,70 +533,23 @@ end -- function switch
 
 -- Handle client focus changes to maintain proper order
 function _M.onClientFocus(c)
-	-- Debug: Log focus changes
-	local debugFile = io.open("/tmp/awesome-switcher-debug.log", "a")
-	if debugFile then
-		local clientName = c and c.valid and (c.name or c.class or "Unknown") or "nil"
-		debugFile:write(os.date("%H:%M:%S") ..
-			" - onClientFocus called for: " .. clientName .. " (isActive: " .. tostring(_M.isActive) .. ")\n")
-		debugFile:close()
-	end
-
 	-- Only update order if we're not in the middle of alt-tab switching
 	-- and the focused client is not already at the front
 	if not _M.isActive and c and c.valid then
 		-- Check if client is already at the front to avoid unnecessary updates
 		if not _M.customClientOrder or #_M.customClientOrder == 0 or _M.customClientOrder[1] ~= c then
-			local debugFile = io.open("/tmp/awesome-switcher-debug.log", "a")
-			if debugFile then
-				debugFile:write(os.date("%H:%M:%S") ..
-					" - onClientFocus moving '" .. (c.name or c.class or "Unknown") .. "' to front\n")
-				debugFile:close()
-			end
 			_M.moveClientToFront(c)
 			_M.applyCustomSource()
 		end
 	end
 end
 
--- Clear debug log
-function _M.clearDebugLog()
-	local debugFile = io.open("/tmp/awesome-switcher-debug.log", "w")
-	if debugFile then
-		debugFile:write("=== Awesome Switcher Debug Log Started ===\n")
-		debugFile:close()
-	end
-end
-
 -- Initialize the module when first loaded
 function _M.init()
-	-- Clear debug log on init
-	_M.clearDebugLog()
-
 	_M.initializeCustomOrder()
 
 	-- Connect to client focus signal
 	client.connect_signal("focus", _M.onClientFocus)
-end
-
--- Debug function to write current client order to file
-function _M.debugClientOrder()
-	local debugFile = io.open("/tmp/awesome-switcher-debug.log", "a")
-	if debugFile then
-		debugFile:write(os.date("%H:%M:%S") .. " - === Custom Client Order ===\n")
-		for i, c in ipairs(_M.customClientOrder or {}) do
-			if c.valid then
-				local focused = (c == client.focus) and " [FOCUSED]" or ""
-				debugFile:write("  " .. i .. ": " .. (c.name or c.class or "Unknown") .. focused .. "\n")
-			end
-		end
-		debugFile:write("  Alt-Tab Active: " .. tostring(_M.isActive) .. "\n")
-		if _M.isActive then
-			debugFile:write("  Current Alt-Tab Index: " .. (_M.altTabIndex or "nil") .. "\n")
-		end
-		debugFile:write("  ============================\n")
-		debugFile:close()
-	end
 end
 
 return {
@@ -669,7 +558,5 @@ return {
 	customTasklistSource = _M.customTasklistSource,
 	init = _M.init,
 	applyCustomSource = _M.applyCustomSource,
-	moveClientToFront = _M.moveClientToFront,
-	debugClientOrder = _M.debugClientOrder,
-	clearDebugLog = _M.clearDebugLog
+	moveClientToFront = _M.moveClientToFront
 }
