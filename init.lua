@@ -62,16 +62,6 @@ function _M.getClients()
 	return clients
 end
 
--- Find index of a client in altTabTable
-function _M.findClientIndex(c)
-	for i, entry in ipairs(_M.altTabTable) do
-		if entry.client == c then
-			return i
-		end
-	end
-	return 1
-end
-
 -- here we populate altTabTable using the list of clients taken from
 -- _M.getClients(). In case we have altTabTable with some value, the list of the
 -- old known clients is restored.
@@ -224,9 +214,14 @@ function _M.cycle(dir)
 	if _M.settings.cycle_raise_client == true then
 		_M.altTabTable[_M.altTabIndex].client:raise()
 	end
+
+	-- Switch to the selected client immediately
+	local selectedClient = _M.altTabTable[_M.altTabIndex].client
+	selectedClient:jump_to()
+	client.focus = selectedClient
 end
 
-function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
+function _M.switch(dir)
 	_M.populateAltTabTable()
 
 	if #_M.altTabTable == 0 then
@@ -237,86 +232,97 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 		return
 	end
 
-	-- Mark as active
-	_M.isActive = true
+	-- If not already active, this is the first press
+	if not _M.isActive then
+		-- Mark as active
+		_M.isActive = true
 
-	-- If we have a previously focused client, start from it
-	if _M.previouslyFocusedClient and _M.previouslyFocusedClient.valid then
-		_M.altTabIndex = _M.findClientIndex(_M.previouslyFocusedClient)
-	else
-		-- Initialize the index based on direction
-		if dir == 1 then
-			_M.altTabIndex = 1
-		else
-			_M.altTabIndex = #_M.altTabTable
-		end
-	end
-
-	-- Store original backgrounds before highlighting
-	_M.storeOriginalBackgrounds()
-
-	-- Immediately highlight the current client
-	_M.highlightWibarClient()
-
-	-- Now that we have collected all windows, we should run a keygrabber
-	-- as long as the user is alt-tabbing:
-	keygrabber.run(
-		function(mod, key, event)
-			-- Stop alt-tabbing when the alt-key is released
-			if gears.table.hasitem(mod, mod_key1) then
-				if (key == release_key or key == "Escape") and event == "release" then
-					if key == "Escape" then
-						-- On Escape, restore original client states
-						_M.isActive = false
-						for i = 1, #_M.altTabTable do
-							_M.altTabTable[i].client.opacity = _M.altTabTable[i].opacity
-							_M.altTabTable[i].client.minimized = _M.altTabTable[i].minimized
-						end
-					else
-						-- Switch to selected client
-						local selectedClient = _M.altTabTable[_M.altTabIndex].client
-						selectedClient:jump_to()
-						client.focus = selectedClient
-
-						-- Store the previously focused client
-						_M.previouslyFocusedClient = client.focus
-
-						-- restore minimized clients and opacity
-						for i = 1, #_M.altTabTable do
-							if i ~= _M.altTabIndex then
-								_M.altTabTable[i].client.minimized = _M.altTabTable[i].minimized
-							end
-							_M.altTabTable[i].client.opacity = _M.altTabTable[i].opacity
-						end
-
-						_M.isActive = false
-					end
-
-					-- Clear highlighting and restore original backgrounds
-					_M.restoreOriginalBackgrounds()
-
-					-- Clean up notification
-					if _M.switcherNotification then
-						naughty.destroy(_M.switcherNotification)
-						_M.switcherNotification = nil
-					end
-
-					keygrabber.stop()
-				elseif key == key_switch and event == "press" then
-					if gears.table.hasitem(mod, mod_key2) then
-						-- Move to previous client on Shift-Tab
-						_M.cycle(-1)
-					else
-						-- Move to next client on each Tab-press
-						_M.cycle(1)
-					end
+		-- Find index of previously focused client
+		local startIndex = 1
+		if _M.previouslyFocusedClient and _M.previouslyFocusedClient.valid then
+			for i, entry in ipairs(_M.altTabTable) do
+				if entry.client == _M.previouslyFocusedClient then
+					startIndex = i
+					break
 				end
 			end
 		end
-	)
+		_M.altTabIndex = startIndex
 
-	-- Immediately cycle once to select the previous window
-	_M.cycle(dir)
+		-- Store original backgrounds before highlighting
+		_M.storeOriginalBackgrounds()
+
+		-- Switch to the selected client immediately
+		local selectedClient = _M.altTabTable[_M.altTabIndex].client
+		selectedClient.minimized = false
+		if _M.settings.cycle_raise_client then
+			selectedClient:raise()
+		end
+		selectedClient:jump_to()
+		client.focus = selectedClient
+		_M.highlightWibarClient()
+	else
+		-- On subsequent presses, just cycle
+		_M.cycle(dir)
+	end
+end
+
+-- Function to handle Alt+Tab key binding
+function _M.bindAltTab()
+	local awful = require("awful")
+	local gears = require("gears")
+
+	-- Alt+Tab - Forward
+	awful.key({ "Mod1" }, "Tab", function()
+		if not _M.isActive then
+			_M.switch(1)
+		else
+			_M.cycle(1)
+		end
+	end)
+
+	-- Alt+Shift+Tab - Backward
+	awful.key({ "Mod1", "Shift" }, "Tab", function()
+		if not _M.isActive then
+			_M.switch(-1)
+		else
+			_M.cycle(-1)
+		end
+	end)
+
+	-- Handle Alt release
+	awesome.connect_signal("root::keyrelease", function(key)
+		if key == "Alt_L" or key == "Alt_R" then
+			if _M.isActive then
+				-- Switch to selected client
+				local selectedClient = _M.altTabTable[_M.altTabIndex].client
+				selectedClient:jump_to()
+				client.focus = selectedClient
+
+				-- Store the previously focused client for next Alt+Tab
+				_M.previouslyFocusedClient = client.focus
+
+				-- restore minimized clients and opacity
+				for i = 1, #_M.altTabTable do
+					if i ~= _M.altTabIndex then
+						_M.altTabTable[i].client.minimized = _M.altTabTable[i].minimized
+					end
+					_M.altTabTable[i].client.opacity = _M.altTabTable[i].opacity
+				end
+
+				_M.isActive = false
+
+				-- Clear highlighting and restore original backgrounds
+				_M.restoreOriginalBackgrounds()
+
+				-- Clean up notification
+				if _M.switcherNotification then
+					naughty.destroy(_M.switcherNotification)
+					_M.switcherNotification = nil
+				end
+			end
+		end
+	end)
 end
 
 -- Initialize the module when first loaded
@@ -328,6 +334,9 @@ function _M.init()
 			client.focus = c
 		end
 	end)
+
+	-- Set up key bindings
+	_M.bindAltTab()
 end
 
 return {
