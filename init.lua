@@ -1,50 +1,26 @@
-local cairo = require("lgi").cairo
 local mouse = mouse
 local screen = screen
-local wibox = require('wibox')
-local table = table
 local keygrabber = keygrabber
-local math = require('math')
 local awful = require('awful')
 local gears = require("gears")
-local timer = gears.timer
 local client = client
-awful.client = require('awful.client')
-
 local naughty = require("naughty")
 local string = string
-local tostring = tostring
-local tonumber = tonumber
-local debug = debug
 local pairs = pairs
-local unpack = unpack or table.unpack
 
 local _M = {}
 
 -- settings
 _M.settings = {
 	cycle_raise_client = true,
-	cycle_all_clients = false,
-
-	-- Wibar highlighting settings
-	wibar_highlight_bg = "#5294e2aa",  -- background color for selected client in wibar
-	wibar_highlight_border = "#5294e2ff", -- border color for selected client in wibar
-	wibar_normal_bg = nil,             -- normal background (nil = default)
-	wibar_normal_border = nil,         -- normal border (nil = default)
+	cycle_all_clients = false
 }
 
 _M.altTabTable = {}
 _M.altTabIndex = 1
-_M.originalTasklistOrder = {}
 _M.isActive = false
 _M.originalTasklistBackgrounds = {} -- Store original backgrounds
-_M.tasklistWidget = nil             -- Cache for tasklist widget
-_M.lastClientOrder = {}             -- Cache for client order to detect changes
 _M.switcherNotification = nil       -- Notification for visual feedback
-_M.customClientOrder = {}           -- Custom client order for tasklist
-_M.originalTasklistSource = nil     -- Store original tasklist source function
-_M.originalFocusedClient = nil      -- Store the originally focused client before switching
-_M.originalCustomOrder = {}         -- Store the original custom order before switching
 
 -- simple function for counting the size of a table
 function _M.tableLength(T)
@@ -53,115 +29,8 @@ function _M.tableLength(T)
 	return count
 end
 
--- Initialize the custom client order
-function _M.initializeCustomOrder()
-	local clients = _M.getTasklistClients()
-	_M.customClientOrder = {}
-	for i, c in ipairs(clients) do
-		table.insert(_M.customClientOrder, c)
-	end
-end
-
--- Move a client to the front of the custom order
-function _M.moveClientToFront(client)
-	if not client or not client.valid then
-		return
-	end
-
-	-- Remove client from current position
-	for i = 1, #_M.customClientOrder do
-		if _M.customClientOrder[i] == client then
-			table.remove(_M.customClientOrder, i)
-			break
-		end
-	end
-
-	-- Insert at the front
-	table.insert(_M.customClientOrder, 1, client)
-end
-
--- Custom source function for tasklist that returns clients in our custom order
-function _M.customTasklistSource(screen)
-	if not _M.customClientOrder or #_M.customClientOrder == 0 then
-		_M.initializeCustomOrder()
-	end
-
-	-- Use the provided screen or fallback to mouse.screen
-	local s = screen or mouse.screen
-
-	-- Filter the custom order to only include valid clients that match the screen and tags
-	local filtered = {}
-	local function filter(c, scr)
-		return awful.widget.tasklist.filter.currenttags(c, scr)
-	end
-
-	for _, c in ipairs(_M.customClientOrder) do
-		if c.valid and (filter(c, s) or (_M.settings.cycle_all_clients and c.screen == s)) then
-			table.insert(filtered, c)
-		end
-	end
-
-	-- Add any new clients that might not be in our custom order yet
-	-- Get clients for the specific screen
-	local allClients = {}
-	for _, c in ipairs(client.get()) do
-		if filter(c, s) or (_M.settings.cycle_all_clients and c.screen == s) then
-			table.insert(allClients, c)
-		end
-	end
-
-	for _, c in ipairs(allClients) do
-		local found = false
-		for _, existing in ipairs(filtered) do
-			if existing == c then
-				found = true
-				break
-			end
-		end
-		if not found then
-			table.insert(filtered, c)
-			table.insert(_M.customClientOrder, c)
-		end
-	end
-
-	return filtered
-end
-
--- Apply custom source to tasklist
-function _M.applyCustomSource()
-	-- Simpler approach: force update by emitting client property changes
-	-- This should trigger the tasklist to refresh and call our source function
-	local selectedClient = nil
-	if _M.altTabTable and _M.altTabIndex and _M.altTabTable[_M.altTabIndex] then
-		selectedClient = _M.altTabTable[_M.altTabIndex].client
-	end
-
-	-- Emit signals that force tasklist refresh
-	client.emit_signal("list")
-	awesome.emit_signal("tasklist::update")
-
-	-- If we have a selected client, emit property change to force refresh
-	if selectedClient and selectedClient.valid then
-		selectedClient:emit_signal("property::urgent")
-		selectedClient:emit_signal("property::urgent") -- Emit twice to toggle
-	end
-
-	-- Use timer for additional refresh attempts
-	gears.timer.start_new(0.05, function()
-		awesome.emit_signal("tasklist::update")
-		client.emit_signal("list")
-		return false -- Don't repeat
-	end)
-end
-
--- Restore original tasklist source (simplified since source is set at creation)
-function _M.restoreOriginalSource()
-	-- Since the source is set during tasklist creation, just trigger refresh
-	_M.applyCustomSource()
-end
-
 -- Get clients using the same filter and sort as the default tasklist
-function _M.getTasklistClients()
+function _M.getClients()
 	local s = mouse.screen
 	local clients = {}
 
@@ -189,21 +58,6 @@ function _M.getTasklistClients()
 		end
 	end)
 
-	return clients
-end
-
--- this function returns the list of clients in the same order as wibar
-function _M.getClients()
-	-- Reset tasklist widget cache to get fresh order
-	_M.tasklistWidget = nil
-
-	-- Use our custom client order if available
-	if _M.customClientOrder and #_M.customClientOrder > 0 then
-		return _M.customTasklistSource(mouse.screen)
-	end
-
-	-- Fallback to default tasklist ordering
-	local clients = _M.getTasklistClients()
 	return clients
 end
 
@@ -242,39 +96,6 @@ end
 function _M.clientsHaveChanged()
 	local clients = _M.getClients()
 	return _M.tableLength(clients) ~= _M.tableLength(_M.altTabTable)
-end
-
--- Find tasklist widget for the current screen
-function _M.findTasklistWidget()
-	if _M.tasklistWidget then
-		return _M.tasklistWidget
-	end
-
-	local s = mouse.screen
-	if not s.mywibar or not s.mywibar.widget then
-		return nil
-	end
-
-	-- Try to find the tasklist widget in the wibar
-	local function findTasklist(widget)
-		if widget.get_children then
-			local children = widget:get_children()
-			for _, child in ipairs(children) do
-				if child.get_children then
-					local result = findTasklist(child)
-					if result then return result end
-				end
-				-- Check if this is a tasklist widget (awful.widget.tasklist)
-				if child.update and child.buttons and child._private and child._private.data then
-					return child
-				end
-			end
-		end
-		return nil
-	end
-
-	_M.tasklistWidget = findTasklist(s.mywibar.widget)
-	return _M.tasklistWidget
 end
 
 -- Store original widget states when starting Alt-Tab
@@ -394,41 +215,7 @@ function _M.cycle(dir)
 	end
 end
 
--- Reorder clients in the wibar based on the focus history
-function _M.reorderWibarClients()
-	-- Move the selected client to the front of our custom order
-	local selectedClient = _M.altTabTable[_M.altTabIndex].client
-
-	_M.moveClientToFront(selectedClient)
-
-	-- Focus the selected client first
-	selectedClient:jump_to()
-	client.focus = selectedClient
-
-	-- Update the tasklist to reflect the new order
-	_M.applyCustomSource()
-end
-
 function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
-	-- Initialize custom client order if not already done
-	if not _M.customClientOrder or #_M.customClientOrder == 0 then
-		_M.initializeCustomOrder()
-	end
-
-	-- Store the original state before any changes
-	_M.originalFocusedClient = client.focus
-	-- Make a deep copy of the current custom order
-	_M.originalCustomOrder = {}
-	for i, c in ipairs(_M.customClientOrder) do
-		table.insert(_M.originalCustomOrder, c)
-	end
-
-	-- Move the currently focused client to the front of the list BEFORE populating altTabTable
-	if client.focus and client.focus.valid then
-		_M.moveClientToFront(client.focus)
-		_M.applyCustomSource()
-	end
-
 	_M.populateAltTabTable()
 
 	if #_M.altTabTable == 0 then
@@ -442,11 +229,11 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 	-- Mark as active
 	_M.isActive = true
 
-	-- Start cycling from the second client (index 2)
-	-- Now the first client in the list is guaranteed to be the currently focused one
-	_M.altTabIndex = 2
-	if _M.altTabIndex > #_M.altTabTable then
+	-- Initialize the index
+	if dir == 1 then
 		_M.altTabIndex = 1
+	else
+		_M.altTabIndex = #_M.altTabTable
 	end
 
 	-- Store original backgrounds before highlighting
@@ -463,31 +250,17 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 			if gears.table.hasitem(mod, mod_key1) then
 				if (key == release_key or key == "Escape") and event == "release" then
 					if key == "Escape" then
-						-- Restore original client order
-						_M.customClientOrder = {}
-						for i, c in ipairs(_M.originalCustomOrder) do
-							table.insert(_M.customClientOrder, c)
-						end
-
-						-- Restore original focused client
-						if _M.originalFocusedClient and _M.originalFocusedClient.valid then
-							_M.originalFocusedClient:jump_to()
-							client.focus = _M.originalFocusedClient
-						end
-
-						-- Restore client states (opacity and minimized)
+						-- On Escape, restore original client states
 						_M.isActive = false
 						for i = 1, #_M.altTabTable do
 							_M.altTabTable[i].client.opacity = _M.altTabTable[i].opacity
 							_M.altTabTable[i].client.minimized = _M.altTabTable[i].minimized
 						end
-
-						-- Update the tasklist to reflect the restored order
-						_M.applyCustomSource()
 					else
-						-- Switch to selected client and reorder
-						-- Keep _M.isActive = true while we reorder to prevent onClientFocus interference
-						_M.reorderWibarClients()
+						-- Switch to selected client
+						local selectedClient = _M.altTabTable[_M.altTabIndex].client
+						selectedClient:jump_to()
+						client.focus = selectedClient
 
 						-- restore minimized clients and opacity
 						for i = 1, #_M.altTabTable do
@@ -497,11 +270,7 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 							_M.altTabTable[i].client.opacity = _M.altTabTable[i].opacity
 						end
 
-						-- Set inactive after a small delay to ensure all focus changes are complete
-						gears.timer.start_new(0.1, function()
-							_M.isActive = false
-							return false -- Don't repeat
-						end)
+						_M.isActive = false
 					end
 
 					-- Clear highlighting and restore original backgrounds
@@ -526,37 +295,20 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 			end
 		end
 	)
-
-	-- We've already set altTabIndex to 2, so we don't need to cycle initially
-	-- The first tab press will be handled by the keygrabber
-end -- function switch
-
--- Handle client focus changes to maintain proper order
-function _M.onClientFocus(c)
-	-- Only update order if we're not in the middle of alt-tab switching
-	-- and the focused client is not already at the front
-	if not _M.isActive and c and c.valid then
-		-- Check if client is already at the front to avoid unnecessary updates
-		if not _M.customClientOrder or #_M.customClientOrder == 0 or _M.customClientOrder[1] ~= c then
-			_M.moveClientToFront(c)
-			_M.applyCustomSource()
-		end
-	end
 end
 
 -- Initialize the module when first loaded
 function _M.init()
-	_M.initializeCustomOrder()
-
 	-- Connect to client focus signal
-	client.connect_signal("focus", _M.onClientFocus)
+	client.connect_signal("focus", function(c)
+		if not _M.isActive and c and c.valid then
+			client.focus = c
+		end
+	end)
 end
 
 return {
 	switch = _M.switch,
 	settings = _M.settings,
-	customTasklistSource = _M.customTasklistSource,
-	init = _M.init,
-	applyCustomSource = _M.applyCustomSource,
-	moveClientToFront = _M.moveClientToFront
+	init = _M.init
 }
