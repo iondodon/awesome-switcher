@@ -21,6 +21,7 @@ _M.altTabIndex = 1
 _M.isActive = false
 _M.originalTasklistBackgrounds = {} -- Store original backgrounds
 _M.switcherNotification = nil       -- Notification for visual feedback
+_M.previouslyFocusedClient = nil    -- Track previously focused client
 
 -- simple function for counting the size of a table
 function _M.tableLength(T)
@@ -59,6 +60,16 @@ function _M.getClients()
 	end)
 
 	return clients
+end
+
+-- Find index of a client in altTabTable
+function _M.findClientIndex(c)
+	for i, entry in ipairs(_M.altTabTable) do
+		if entry.client == c then
+			return i
+		end
+	end
+	return 1
 end
 
 -- here we populate altTabTable using the list of clients taken from
@@ -229,11 +240,16 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 	-- Mark as active
 	_M.isActive = true
 
-	-- Initialize the index
-	if dir == 1 then
-		_M.altTabIndex = 1
+	-- If we have a previously focused client, start from it
+	if _M.previouslyFocusedClient and _M.previouslyFocusedClient.valid then
+		_M.altTabIndex = _M.findClientIndex(_M.previouslyFocusedClient)
 	else
-		_M.altTabIndex = #_M.altTabTable
+		-- Initialize the index based on direction
+		if dir == 1 then
+			_M.altTabIndex = 1
+		else
+			_M.altTabIndex = #_M.altTabTable
+		end
 	end
 
 	-- Store original backgrounds before highlighting
@@ -261,6 +277,9 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 						local selectedClient = _M.altTabTable[_M.altTabIndex].client
 						selectedClient:jump_to()
 						client.focus = selectedClient
+
+						-- Store the previously focused client
+						_M.previouslyFocusedClient = client.focus
 
 						-- restore minimized clients and opacity
 						for i = 1, #_M.altTabTable do
@@ -295,13 +314,17 @@ function _M.switch(dir, mod_key1, release_key, mod_key2, key_switch)
 			end
 		end
 	)
+
+	-- Immediately cycle once to select the previous window
+	_M.cycle(dir)
 end
 
 -- Initialize the module when first loaded
 function _M.init()
-	-- Connect to client focus signal
+	-- Connect to client focus signal to track previously focused client
 	client.connect_signal("focus", function(c)
 		if not _M.isActive and c and c.valid then
+			_M.previouslyFocusedClient = client.focus
 			client.focus = c
 		end
 	end)
