@@ -8,6 +8,14 @@ local naughty = require("naughty")
 local string = string
 local pairs = pairs
 
+local function log_to_file(message)
+	local file = io.open("/tmp/awesome-switcher.log", "a")
+	if file then
+		file:write(os.date("[%Y-%m-%d %H:%M:%S] ") .. message .. "\n")
+		file:close()
+	end
+end
+
 local _M = {}
 
 -- settings
@@ -180,21 +188,10 @@ function _M.highlightWibarClient()
 	local selectedClient = _M.altTabTable[_M.altTabIndex].client
 	if selectedClient.valid then
 		selectedClient.urgent = true
-
-		-- Method 2: Force focus temporarily for visual feedback (will be restored)
-		client.focus = selectedClient
 	end
 
 	-- Method 3: Update all widgets
 	awesome.emit_signal("tasklist::update")
-
-	-- Method 4: Show notification as fallback visual feedback
-	_M.showSelectionNotification()
-
-	-- Ensure the client is raised if setting is enabled
-	if _M.settings.cycle_raise_client then
-		selectedClient:raise()
-	end
 end
 
 function _M.cycle(dir)
@@ -210,116 +207,77 @@ function _M.cycle(dir)
 	_M.highlightWibarClient()
 
 	_M.altTabTable[_M.altTabIndex].client.minimized = false
-
-	if _M.settings.cycle_raise_client == true then
-		_M.altTabTable[_M.altTabIndex].client:raise()
-	end
-
-	-- Switch to the selected client immediately
-	local selectedClient = _M.altTabTable[_M.altTabIndex].client
-	selectedClient:jump_to()
-	client.focus = selectedClient
 end
+
+local keygrabber_instance
 
 function _M.switch(dir)
 	_M.populateAltTabTable()
 
-	if #_M.altTabTable == 0 then
-		return
-	elseif #_M.altTabTable == 1 then
-		_M.altTabTable[1].client.minimized = false
-		_M.altTabTable[1].client:raise()
+	if #_M.altTabTable < 2 then
+		if #_M.altTabTable == 1 then
+			_M.altTabTable[1].client.minimized = false
+			_M.altTabTable[1].client:raise()
+		end
 		return
 	end
 
-	-- If not already active, this is the first press
-	if not _M.isActive then
-		-- Mark as active
-		_M.isActive = true
-
-		-- Find index of previously focused client
-		local startIndex = 1
-		if _M.previouslyFocusedClient and _M.previouslyFocusedClient.valid then
-			for i, entry in ipairs(_M.altTabTable) do
-				if entry.client == _M.previouslyFocusedClient then
-					startIndex = i
-					break
-				end
+	local startIndex = 1
+	if client.focus and client.focus.valid then
+		_M.previouslyFocusedClient = client.focus
+		for i, entry in ipairs(_M.altTabTable) do
+			if entry.client == _M.previouslyFocusedClient then
+				startIndex = i
+				break
 			end
 		end
-		_M.altTabIndex = startIndex
-
-		-- Store original backgrounds before highlighting
-		_M.storeOriginalBackgrounds()
-
-		-- Switch to the selected client immediately
-		local selectedClient = _M.altTabTable[_M.altTabIndex].client
-		selectedClient.minimized = false
-		if _M.settings.cycle_raise_client then
-			selectedClient:raise()
-		end
-		selectedClient:jump_to()
-		client.focus = selectedClient
-		_M.highlightWibarClient()
-	else
-		-- On subsequent presses, just cycle
-		_M.cycle(dir)
 	end
-end
+	_M.altTabIndex = startIndex
 
--- Function to handle Alt+Tab key binding
-function _M.bindAltTab()
-	local awful = require("awful")
-	local gears = require("gears")
+	_M.storeOriginalBackgrounds()
+	_M.cycle(dir)
 
-	-- Alt+Tab - Forward
-	awful.key({ "Mod1" }, "Tab", function()
-		if not _M.isActive then
-			_M.switch(1)
-		else
-			_M.cycle(1)
-		end
-	end)
-
-	-- Alt+Shift+Tab - Backward
-	awful.key({ "Mod1", "Shift" }, "Tab", function()
-		if not _M.isActive then
-			_M.switch(-1)
-		else
-			_M.cycle(-1)
-		end
-	end)
-
-	-- Handle Alt release
-	awesome.connect_signal("root::keyrelease", function(key)
-		if key == "Alt_L" or key == "Alt_R" then
-			if _M.isActive then
-				-- Switch to selected client
-				local selectedClient = _M.altTabTable[_M.altTabIndex].client
-				selectedClient:jump_to()
-				client.focus = selectedClient
-
-				-- Store the previously focused client for next Alt+Tab
-				_M.previouslyFocusedClient = client.focus
-
-				-- restore minimized clients and opacity
-				for i = 1, #_M.altTabTable do
-					if i ~= _M.altTabIndex then
-						_M.altTabTable[i].client.minimized = _M.altTabTable[i].minimized
+	keygrabber_instance = awful.keygrabber.run(function(mod, key, event)
+		if event == "press" then
+			if key == "Tab" then
+				local shift_pressed = false
+				for _, m in ipairs(mod) do
+					if m == "Shift" then
+						shift_pressed = true
+						break
 					end
-					_M.altTabTable[i].client.opacity = _M.altTabTable[i].opacity
 				end
-
-				_M.isActive = false
-
-				-- Clear highlighting and restore original backgrounds
+				if shift_pressed then
+					_M.cycle(-1)
+				else
+					_M.cycle(1)
+				end
+			elseif key == "Escape" then
+				awful.keygrabber.stop(keygrabber_instance)
 				_M.restoreOriginalBackgrounds()
-
-				-- Clean up notification
-				if _M.switcherNotification then
-					naughty.destroy(_M.switcherNotification)
-					_M.switcherNotification = nil
+				if _M.previouslyFocusedClient and _M.previouslyFocusedClient.valid then
+					client.focus = _M.previouslyFocusedClient
+					_M.previouslyFocusedClient:raise()
 				end
+			end
+		elseif event == "release" then
+			if key == "Alt_L" or key == "Alt_R" then
+				awful.keygrabber.stop(keygrabber_instance)
+				local selectedClient = _M.altTabTable[_M.altTabIndex].client
+				if selectedClient and selectedClient.valid then
+					if _M.settings.cycle_raise_client then
+						selectedClient:raise()
+					end
+					selectedClient:jump_to()
+					client.focus = selectedClient
+					for i, v in ipairs(_M.altTabTable) do
+						if i ~= _M.altTabIndex then
+							v.client.minimized = v.minimized
+						end
+						v.client.opacity = v.opacity
+					end
+				end
+				_M.restoreOriginalBackgrounds()
 			end
 		end
 	end)
@@ -327,16 +285,7 @@ end
 
 -- Initialize the module when first loaded
 function _M.init()
-	-- Connect to client focus signal to track previously focused client
-	client.connect_signal("focus", function(c)
-		if not _M.isActive and c and c.valid then
-			_M.previouslyFocusedClient = client.focus
-			client.focus = c
-		end
-	end)
-
-	-- Set up key bindings
-	_M.bindAltTab()
+	-- No-op, keybindings are now handled in rc.lua
 end
 
 return {

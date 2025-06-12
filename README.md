@@ -3,14 +3,18 @@
 This plugin integrates the familiar application switcher functionality in the
 [awesome window manager](https://github.com/awesomeWM/awesome).
 
+**Compatible with AwesomeWM v4.3**
+
 Features:
 
-- **Simple Alt-Tab switching**: Cycle through windows in their natural order
-- **ESC cancellation**: Press ESC while Alt-Tab switching to cancel and return to the original window
-- Visual highlighting of selected window with urgent flag
-- Easily adjustable settings
-- Backward cycle using second modifier (e.g.: Shift)
-- Includes minimized clients (in contrast to some of the default window-switching utilities)
+- **Smart Window Switching**: Cycles through windows in their natural order (sorted by class, then instance)
+- **Visual Feedback**: Highlights the selected window in the wibar using the urgent flag
+- **Minimized Windows**: Automatically unminimizes windows when cycling through them
+- **Window Raising**: Optional automatic raising of windows during cycling (configurable)
+- **Multi-Screen Support**: Works across all screens with proper window management
+- **Backward Cycling**: Use Alt-Shift-Tab to cycle backwards
+- **State Preservation**: Remembers window states (minimized, opacity) and restores them properly
+- **Focus Memory**: Tracks previously focused client for better switching experience
 
 ## Installation
 
@@ -24,7 +28,7 @@ git clone https://github.com/iondodon/awesome-switcher.git awesome-switcher
 Then add the dependency to your Awesome `rc.lua` config file:
 
 ```Lua
-    local switcher = require("awesome-switcher")
+local switcher = require("awesome-switcher")
 ```
 
 ### Initialization
@@ -32,36 +36,18 @@ Then add the dependency to your Awesome `rc.lua` config file:
 Initialize the switcher after setting up your screens:
 
 ```Lua
-    -- Initialize the switcher (add this after your screen setup)
-    switcher.init()
+-- Initialize the switcher (add this after your screen setup)
+switcher.init()
 ```
 
 ## Configuration
 
-Optionally edit any subset of the following settings, the defaults are:
+The switcher provides two configurable settings:
 
 ```Lua
-    switcher.settings.cycle_raise_client = true    -- raise clients on cycle
-    switcher.settings.cycle_all_clients = false    -- cycle through all clients
+switcher.settings.cycle_raise_client = true    -- Automatically raise windows when cycling through them
+switcher.settings.cycle_all_clients = false    -- If true, cycle through all clients on the screen, not just the ones in the current tag
 ```
-
-Then add key-bindings. On my particular system I switch to the next client by Alt-Tab and
-back with Alt-Shift-Tab. Therefore, this is what my keybindings look like:
-
-```Lua
-    awful.key({ "Mod1",           }, "Tab",
-      function ()
-          switcher.switch( 1, "Mod1", "Alt_L", "Shift", "Tab")
-      end),
-
-    awful.key({ "Mod1", "Shift"   }, "Tab",
-      function ()
-          switcher.switch(-1, "Mod1", "Alt_L", "Shift", "Tab")
-      end),
-```
-
-Please keep in mind that "Mod1" and "Shift" are actual modifiers and not real keys.
-This is important for the keygrabber as the keygrabber uses "Shift_L" for a pressed (left) "Shift" key.
 
 ## Usage
 
@@ -71,19 +57,21 @@ The switcher provides Alt-Tab functionality with the following behaviors:
 
 1. **Hold Alt + press Tab**: Start cycling through windows
 2. **Continue pressing Tab**: Move to the next window in the cycle
-3. **Add Shift**: Press Shift+Tab to cycle backwards
-4. **Release Alt**: Confirm your selection and focus the selected window
+3. **Add Shift**: Press Alt-Shift-Tab to cycle backwards
+4. **Release Alt**: Switch to and focus the selected window
 
-### Cancellation
+The switcher will:
 
-1. **Hold Alt + press Tab**: Start cycling through windows
-2. **Press Tab multiple times**: Navigate to different windows
-3. **Press ESC (while still holding Alt)**: Cancel the operation and return to the original window
+- Automatically unminimize windows when cycling to them
+- Highlight the selected window in the wibar
+- Preserve window states when cycling ends
+- Remember the previously focused window for better context
 
 ## Credits
 
 This plugin was created by [Joren Heit](https://github.com/jorenheit)
-and later improved upon by [Matthias Berla](https://github.com/berlam).
+and later improved upon by [Matthias Berla](https://github.com/berlam)
+and [Ion Dodon](https://github.com/iondodon).
 
 ## License
 
